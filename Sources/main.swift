@@ -313,19 +313,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let title = NSMutableAttributedString()
         let mouseSeg = segment(symbolName: "computermouse.fill", reading: mouseReading)
         let sonySeg = segment(symbolName: "headphones", reading: sonyReading)
-        if mouseSeg == nil && sonySeg == nil {
-            if let fallback = symbol("battery.0", color: nil) {
-                let attachment = NSTextAttachment()
-                attachment.image = fallback
-                title.append(NSAttributedString(attachment: attachment))
-            } else {
-                title.append(NSAttributedString(string: "--"))
-            }
-        } else {
-            if let mouseSeg = mouseSeg { title.append(mouseSeg) }
-            if mouseSeg != nil && sonySeg != nil { title.append(NSAttributedString(string: "  ")) }
-            if let sonySeg = sonySeg { title.append(sonySeg) }
-        }
+        // Nothing to show: hide the item. The 60s timer and wake observer bring it back.
+        statusItem.isVisible = mouseSeg != nil || sonySeg != nil
+        if let mouseSeg = mouseSeg { title.append(mouseSeg) }
+        if mouseSeg != nil && sonySeg != nil { title.append(NSAttributedString(string: "  ")) }
+        if let sonySeg = sonySeg { title.append(sonySeg) }
         statusItem.button?.attributedTitle = title
     }
 
