@@ -279,22 +279,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func symbol(_ name: String, color: NSColor) -> NSImage? {
+    // color nil = template image: the menu bar tints it like every other status icon.
+    // A fixed .labelColor is 85% opaque and resolves outside the bar's appearance, so it looked dimmer.
+    private func symbol(_ name: String, color: NSColor?) -> NSImage? {
         guard let base = NSImage(systemSymbolName: name, accessibilityDescription: nil) else { return nil }
-        let config = NSImage.SymbolConfiguration(paletteColors: [color]).applying(.init(pointSize: 13, weight: .regular))
-        return base.withSymbolConfiguration(config)
+        var config = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
+        if let color = color { config = config.applying(.init(paletteColors: [color])) }
+        let image = base.withSymbolConfiguration(config)
+        image?.isTemplate = (color == nil)
+        return image
     }
 
     private func segment(symbolName: String, reading: BatteryReading) -> NSAttributedString? {
         guard let percent = reading.percent else { return nil }
-        let color: NSColor = percent <= 15 ? .systemRed : .labelColor
+        let color: NSColor? = percent <= 15 ? .systemRed : nil
         let result = NSMutableAttributedString()
         if let img = symbol(symbolName, color: color) {
             let attachment = NSTextAttachment()
             attachment.image = img
             result.append(NSAttributedString(attachment: attachment))
         }
-        result.append(NSAttributedString(string: " \(percent)%", attributes: [.foregroundColor: color]))
+        result.append(NSAttributedString(string: " \(percent)%", attributes: color.map { [.foregroundColor: $0] } ?? [:]))
         if reading.charging, let bolt = symbol("bolt.fill", color: .systemYellow) {
             let attachment = NSTextAttachment()
             attachment.image = bolt
@@ -309,7 +314,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let mouseSeg = segment(symbolName: "computermouse.fill", reading: mouseReading)
         let sonySeg = segment(symbolName: "headphones", reading: sonyReading)
         if mouseSeg == nil && sonySeg == nil {
-            if let fallback = symbol("battery.0", color: .labelColor) {
+            if let fallback = symbol("battery.0", color: nil) {
                 let attachment = NSTextAttachment()
                 attachment.image = fallback
                 title.append(NSAttributedString(attachment: attachment))
