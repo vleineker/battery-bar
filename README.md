@@ -1,6 +1,6 @@
 # BatteryBar
 
-Bateria do mouse Logitech e do fone Sony na barra de menus do macOS, com
+Bateria do mouse Logitech, do fone Sony e dos AirPods na barra de menus do macOS, com
 ajuste de sensibilidade (DPI) do mouse sem o app da Logitech.
 
 App nativo em Swift/AppKit, sem Dock, para macOS 13 ou superior. Um
@@ -34,11 +34,13 @@ tiver voltado ao perfil interno.
 
 - **Logitech PRO X 2** no receptor Lightspeed (`046d:c54d`).
 - **Sony WH-1000XM4** por Bluetooth.
+- **AirPods** por Bluetooth (percentual único, como o macOS informa).
 
 Outros mouses Logitech com HID++ 2.0 em receptor USB devem funcionar para
-a bateria, mas não foram testados. O nome do fone está fixo em
-`SonyReader.nameHint`, em `Sources/main.swift`; para outro fone que o
-macOS liste em `pmset -g accps`, basta trocar esse nome.
+a bateria, mas não foram testados. Os nomes dos fones estão fixos em
+`AccessoryReader.sonyHint` e `AccessoryReader.airpodsHint`, em
+`Sources/main.swift`; para outro fone que o macOS liste em
+`pmset -g accps`, basta trocar o nome.
 
 ## Instalar
 
@@ -71,7 +73,7 @@ $B --onboard        # devolve o controle ao perfil interno do mouse
 - **Sensibilidade:** recurso `0x2202` para ler e definir o DPI, e recurso
   `0x8100` para alternar entre o perfil interno e o modo controlado pelo
   computador. São as únicas escritas feitas no mouse.
-- **Fone:** linha do aparelho em `pmset -g accps`.
+- **Fones:** linha de cada aparelho em `pmset -g accps`.
 
 ## Limitações
 

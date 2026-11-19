@@ -1,5 +1,5 @@
 // BatteryBar — menu bar battery monitor for a Logitech mouse (USB receiver, HID++ 2.0)
-// and a Sony WH-1000XM4 headphone (Bluetooth, via `pmset -g accps`).
+// plus a Sony WH-1000XM4 headphone and AirPods (Bluetooth, via `pmset -g accps`).
 //
 // Battery is read-only. The only writes to the mouse are DPI and the onboard/host mode switch.
 
@@ -172,7 +172,7 @@ enum LogitechReader {
     }
 }
 
-// MARK: - Sony WH-1000XM4 (Bluetooth, via pmset)
+// MARK: - Sony WH-1000XM4 and AirPods (Bluetooth, via pmset)
 //
 // Verified against this machine: `pmset -g accps` reports the headphone as a
 // non-internal power source named "-WH-1000XM4 (id=...)" with a current-capacity
@@ -180,10 +180,12 @@ enum LogitechReader {
 // data that backs `pmset`, without shelling out and without touching
 // IOBluetoothDevice (which crashed this process when tried).
 
-enum SonyReader {
-    static let nameHint = "WH-1000XM4"
+enum AccessoryReader {
+    static let sonyHint = "WH-1000XM4"
+    static let airpodsHint = "AirPods"
 
-    static func read() -> BatteryReading {
+    /// Runs `pmset -g accps` once; parse it per device with `reading(named:in:)`.
+    static func snapshot() -> String? {
         // The public IOPSCopyPowerSourcesList omits accessories; `pmset -g accps` lists them.
         // Line format: " -WH-1000XM4 (id=123)\t70%; discharging present: true"
         let task = Process()
@@ -192,11 +194,18 @@ enum SonyReader {
         let pipe = Pipe()
         task.standardOutput = pipe
         task.standardError = FileHandle.nullDevice
-        guard (try? task.run()) != nil else {
+        guard (try? task.run()) != nil else { return nil }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        task.waitUntilExit()
+        // Lossy decode: pmset emits a non-UTF-8 byte for the curly apostrophe in
+        // "Vitor’s AirPods", which makes a strict UTF-8 decode return nil for the whole output.
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    static func reading(named nameHint: String, in output: String?) -> BatteryReading {
+        guard let output = output else {
             return BatteryReading(connected: false, percent: nil, charging: false, raw: "pmset failed to run")
         }
-        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        task.waitUntilExit()
         for line in output.split(separator: "\n") where line.contains(nameHint) {
             let fields = line.split(separator: "\t").last.map(String.init) ?? ""
             let percent = Int(fields.prefix { $0.isNumber })
@@ -231,7 +240,9 @@ if args.contains("--list") {
         print("\(label): connected=\(r.connected) percent=\(pct) charging=\(r.charging) raw=\"\(r.raw)\"")
     }
     line("mouse-logitech", LogitechReader.read())
-    line("headphone-sony-wh1000xm4", SonyReader.read())
+    let accessories = AccessoryReader.snapshot()
+    line("headphone-sony-wh1000xm4", AccessoryReader.reading(named: AccessoryReader.sonyHint, in: accessories))
+    line("airpods", AccessoryReader.reading(named: AccessoryReader.airpodsHint, in: accessories))
     print(dpiLine(LogitechReader.readDPI()))
     exit(0)
 }
@@ -243,6 +254,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var timer: Timer?
     private var mouseReading = BatteryReading(connected: false, percent: nil, charging: false, raw: "")
     private var sonyReading = BatteryReading(connected: false, percent: nil, charging: false, raw: "")
+    private var airpodsReading = BatteryReading(connected: false, percent: nil, charging: false, raw: "")
     private var dpiState: LogitechReader.DPIState?
     private let hidQueue = DispatchQueue(label: "batterybar.hid")
     private let presets = [400, 800, 1200, 1600, 2400, 3200]
@@ -268,10 +280,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // The mouse may fall back to its onboard profile after a power cycle: re-apply the chosen DPI.
             let saved = UserDefaults.standard.integer(forKey: "dpi")
             if saved > 0, let d = dpi, d.current != saved || !d.hostMode { dpi = LogitechReader.setDPI(saved) }
-            let sony = SonyReader.read()
+            let accessories = AccessoryReader.snapshot()
+            let sony = AccessoryReader.reading(named: AccessoryReader.sonyHint, in: accessories)
+            let airpods = AccessoryReader.reading(named: AccessoryReader.airpodsHint, in: accessories)
             DispatchQueue.main.async {
                 self?.mouseReading = mouse
                 self?.sonyReading = sony
+                self?.airpodsReading = airpods
                 self?.dpiState = dpi
                 self?.updateTitle()
                 self?.updateMenu()
@@ -311,13 +326,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func updateTitle() {
         let title = NSMutableAttributedString()
-        let mouseSeg = segment(symbolName: "computermouse.fill", reading: mouseReading)
-        let sonySeg = segment(symbolName: "headphones", reading: sonyReading)
+        let segments = [
+            segment(symbolName: "computermouse.fill", reading: mouseReading),
+            segment(symbolName: "headphones", reading: sonyReading),
+            segment(symbolName: "airpods", reading: airpodsReading)
+        ].compactMap { $0 }
         // Nothing to show: hide the item. The 60s timer and wake observer bring it back.
-        statusItem.isVisible = mouseSeg != nil || sonySeg != nil
-        if let mouseSeg = mouseSeg { title.append(mouseSeg) }
-        if mouseSeg != nil && sonySeg != nil { title.append(NSAttributedString(string: "  ")) }
-        if let sonySeg = sonySeg { title.append(sonySeg) }
+        statusItem.isVisible = !segments.isEmpty
+        for (i, seg) in segments.enumerated() {
+            if i > 0 { title.append(NSAttributedString(string: "  ")) }
+            title.append(seg)
+        }
         statusItem.button?.attributedTitle = title
     }
 
@@ -347,6 +366,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.removeAllItems()
         _ = add(menu, deviceLine("Mouse Logitech", mouseReading), nil)
         _ = add(menu, deviceLine("Fone Sony WH-1000XM4", sonyReading), nil)
+        _ = add(menu, deviceLine("AirPods", airpodsReading), nil)
         menu.addItem(.separator())
         let dpiItem = add(menu, dpiState.map { "Sensibilidade: \($0.current) DPI" } ?? "Sensibilidade: mouse sem resposta", nil)
         if let state = dpiState {
